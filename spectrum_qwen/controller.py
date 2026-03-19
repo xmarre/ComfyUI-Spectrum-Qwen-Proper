@@ -11,6 +11,8 @@ from .state import QwenSpectrumState
 def find_step_index(sigmas: torch.Tensor, timestep: torch.Tensor) -> int:
     if sigmas.ndim == 0:
         return 0
+    if timestep.numel() == 0:
+        return 0
 
     target = timestep[0]
     matched = (sigmas == target).nonzero()

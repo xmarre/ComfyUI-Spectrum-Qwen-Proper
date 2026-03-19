@@ -10,7 +10,7 @@ from .constants import RUNTIME_ATTR, STATE_ATTR
 from .controller import decide_actual_or_forecast, find_step_index, should_reset_for_step_zero
 from .forward_qwen import build_qwen_core_forward
 from .state import QwenSpectrumRuntime, QwenSpectrumState
-from .utils import LOGGER, log_debug
+from .utils import log_debug
 
 
 
@@ -87,13 +87,6 @@ def create_qwen_spectrum_unet_wrapper(
                     f"total={state.actual_count + state.forecast_count}"
                 ),
             )
-            if config.debug:
-                LOGGER.info(
-                    "Spectrum Qwen finished run: actual=%s forecast=%s total=%s",
-                    state.actual_count,
-                    state.forecast_count,
-                    state.actual_count + state.forecast_count,
-                )
 
         return out
 
