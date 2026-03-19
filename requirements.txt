@@ -1,0 +1,2 @@
+# No extra dependencies.
+# Uses Python stdlib + the packages already present in a normal ComfyUI installation.
