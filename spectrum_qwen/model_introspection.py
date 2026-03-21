@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
+import torch.nn as nn
+
 from .constants import SUPPORTED_FORWARD_FIELDS
 
 
@@ -29,6 +31,16 @@ def is_qwen_like_core(obj: Any) -> bool:
 
 
 
+def iter_candidate_children(obj: Any):
+    for attr_name in KNOWN_INNER_ATTRS:
+        if hasattr(obj, attr_name):
+            yield getattr(obj, attr_name)
+
+    if isinstance(obj, nn.Module):
+        for child in obj.children():
+            yield child
+
+
 def resolve_qwen_core(diffusion_model: Any) -> Any | None:
     queue = deque([diffusion_model])
     seen: set[int] = set()
@@ -45,8 +57,7 @@ def resolve_qwen_core(diffusion_model: Any) -> Any | None:
         if is_qwen_like_core(current):
             return current
 
-        for attr_name in KNOWN_INNER_ATTRS:
-            if hasattr(current, attr_name):
-                queue.append(getattr(current, attr_name))
+        for child in iter_candidate_children(current):
+            queue.append(child)
 
     return None

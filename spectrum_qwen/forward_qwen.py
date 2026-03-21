@@ -19,14 +19,26 @@ def _call_time_text_embed(
 ) -> torch.Tensor:
     timestep = timestep.to(hidden_states.dtype)
     if guidance is None:
-        return core.time_text_embed(timestep, hidden_states, additional_t_cond)
+        if additional_t_cond is not None:
+            try:
+                return core.time_text_embed(timestep, hidden_states, additional_t_cond)
+            except TypeError:
+                pass
+        return core.time_text_embed(timestep, hidden_states)
 
-    return core.time_text_embed(
-        timestep,
-        guidance.to(hidden_states.dtype) * 1000,
-        hidden_states,
-        additional_t_cond,
-    )
+    guidance = guidance.to(hidden_states.dtype) * 1000
+    if additional_t_cond is not None:
+        try:
+            return core.time_text_embed(
+                timestep,
+                guidance,
+                hidden_states,
+                additional_t_cond,
+            )
+        except TypeError:
+            pass
+
+    return core.time_text_embed(timestep, guidance, hidden_states)
 
 
 
