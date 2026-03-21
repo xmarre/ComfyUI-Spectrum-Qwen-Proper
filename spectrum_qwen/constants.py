@@ -7,6 +7,5 @@ SUPPORTED_FORWARD_FIELDS = {
     "transformer_blocks",
     "norm_out",
     "proj_out",
-    "pos_embed",
     "time_text_embed",
 }
