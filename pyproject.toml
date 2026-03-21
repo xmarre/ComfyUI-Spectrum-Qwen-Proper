@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-spectrum-qwen-proper"
-version = "0.1.0"
+version = "0.1.1"
 description = "Spectrum-style hidden-state forecasting patcher for native ComfyUI Qwen Image-family models."
 readme = "README.md"
 requires-python = ">=3.10"
