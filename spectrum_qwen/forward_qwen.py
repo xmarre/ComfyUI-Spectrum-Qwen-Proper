@@ -19,6 +19,34 @@ def _call_time_text_embed(
     return core.time_text_embed(timestep, hidden_states, additional_t_cond)
 
 
+def _reconstruct_qwen_output(
+    core: Any,
+    model_input: torch.Tensor,
+    out_sample: torch.Tensor,
+) -> torch.Tensor:
+    try:
+        tokenized_x, _, orig_shape = core.process_img(model_input)
+    except Exception as exc:
+        raise RuntimeError(
+            "Spectrum Qwen forecast path could not reconstruct outer QwenImage output shape "
+            "from process_img(model_input)."
+        ) from exc
+
+    num_embeds = tokenized_x.shape[1]
+    patch_size = int(getattr(core, "patch_size", 2))
+
+    out_sample = out_sample[:, :num_embeds].reshape(
+        orig_shape[0],
+        orig_shape[-2] // patch_size,
+        orig_shape[-1] // patch_size,
+        orig_shape[1],
+        patch_size,
+        patch_size,
+    )
+    out_sample = out_sample.permute(0, 3, 1, 4, 2, 5)
+    return out_sample.reshape(orig_shape)[:, :, :, : model_input.shape[-2], : model_input.shape[-1]]
+
+
 
 def _run_actual_forward(
     core: Any,
@@ -91,6 +119,7 @@ def _run_forecast_forward(
     pred = pred.to(device=hidden_states.device, dtype=hidden_states.dtype)
     temb = _call_time_text_embed(core, timestep, pred, additional_t_cond)
     out_sample = core.proj_out(core.norm_out(pred, temb))
+    out_sample = _reconstruct_qwen_output(core, hidden_states, out_sample)
     state.record_forecast()
     log_debug(
         runtime.config.debug,
