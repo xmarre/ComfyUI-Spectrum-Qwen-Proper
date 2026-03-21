@@ -9,6 +9,16 @@ from .state import QwenSpectrumRuntime, QwenSpectrumState
 from .utils import build_output_factory, log_debug, resolve_cache_target
 
 
+def _is_signature_mismatch_typeerror(exc: TypeError) -> bool:
+    msg = str(exc)
+    return (
+        "positional argument" in msg
+        or "were given" in msg
+        or "required positional argument" in msg
+        or "unexpected keyword argument" in msg
+    )
+
+
 
 def _call_time_text_embed(
     core: Any,
@@ -18,15 +28,53 @@ def _call_time_text_embed(
     additional_t_cond: Any,
 ) -> torch.Tensor:
     timestep = timestep.to(hidden_states.dtype)
-    if guidance is None:
-        return core.time_text_embed(timestep, hidden_states, additional_t_cond)
+    supports_additional = getattr(core, "_spectrum_supports_additional_t_cond", None)
 
-    return core.time_text_embed(
-        timestep,
-        guidance.to(hidden_states.dtype) * 1000,
-        hidden_states,
-        additional_t_cond,
-    )
+    if guidance is None:
+        if additional_t_cond is None or supports_additional is False:
+            return core.time_text_embed(timestep, hidden_states)
+
+        if supports_additional is True:
+            return core.time_text_embed(timestep, hidden_states, additional_t_cond)
+
+        try:
+            out = core.time_text_embed(timestep, hidden_states, additional_t_cond)
+        except TypeError as exc:
+            if _is_signature_mismatch_typeerror(exc):
+                setattr(core, "_spectrum_supports_additional_t_cond", False)
+                return core.time_text_embed(timestep, hidden_states)
+            raise
+
+        setattr(core, "_spectrum_supports_additional_t_cond", True)
+        return out
+
+    guidance = guidance.to(hidden_states.dtype) * 1000
+    if additional_t_cond is None or supports_additional is False:
+        return core.time_text_embed(timestep, guidance, hidden_states)
+
+    if supports_additional is True:
+        return core.time_text_embed(
+            timestep,
+            guidance,
+            hidden_states,
+            additional_t_cond,
+        )
+
+    try:
+        out = core.time_text_embed(
+            timestep,
+            guidance,
+            hidden_states,
+            additional_t_cond,
+        )
+    except TypeError as exc:
+        if _is_signature_mismatch_typeerror(exc):
+            setattr(core, "_spectrum_supports_additional_t_cond", False)
+            return core.time_text_embed(timestep, guidance, hidden_states)
+        raise
+
+    setattr(core, "_spectrum_supports_additional_t_cond", True)
+    return out
 
 
 
