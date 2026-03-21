@@ -12,15 +12,11 @@ from .utils import build_output_factory, log_debug, resolve_cache_target
 def _call_time_text_embed(
     core: Any,
     timestep: torch.Tensor,
-    guidance: torch.Tensor | None,
     hidden_states: torch.Tensor,
+    additional_t_cond: Any,
 ) -> torch.Tensor:
     timestep = timestep.to(hidden_states.dtype)
-    if guidance is None:
-        return core.time_text_embed(timestep, hidden_states)
-
-    guidance = guidance.to(hidden_states.dtype) * 1000
-    return core.time_text_embed(timestep, guidance, hidden_states)
+    return core.time_text_embed(timestep, hidden_states, additional_t_cond)
 
 
 
@@ -79,8 +75,7 @@ def _run_forecast_forward(
     runtime: QwenSpectrumRuntime,
     hidden_states: torch.Tensor,
     timestep: torch.Tensor,
-    guidance: torch.Tensor | None,
-    return_dict: bool,
+    additional_t_cond: Any,
 ) -> Any:
     if state.output_factory is None:
         raise RuntimeError("output factory missing before forecast")
@@ -94,7 +89,7 @@ def _run_forecast_forward(
     )
 
     pred = pred.to(device=hidden_states.device, dtype=hidden_states.dtype)
-    temb = _call_time_text_embed(core, timestep, guidance, pred)
+    temb = _call_time_text_embed(core, timestep, pred, additional_t_cond)
     out_sample = core.proj_out(core.norm_out(pred, temb))
     state.record_forecast()
     log_debug(
@@ -104,7 +99,7 @@ def _run_forecast_forward(
             f"mode=forecast history={len(state.history_features)}"
         ),
     )
-    return state.output_factory(out_sample, return_dict)
+    return state.output_factory(out_sample, True)
 
 
 
@@ -114,28 +109,26 @@ def build_qwen_core_forward(
 ) -> Callable[..., Any]:
     def spectrum_qwen_forward(
         self: Any,
-        hidden_states: torch.Tensor,
-        encoder_hidden_states: torch.Tensor | None = None,
-        encoder_hidden_states_mask: torch.Tensor | None = None,
-        timestep: torch.Tensor | None = None,
-        image_rotary_emb: Any = None,
-        guidance: torch.Tensor | None = None,
-        attention_kwargs: dict[str, Any] | None = None,
-        return_dict: bool = True,
+        x: torch.Tensor,
+        timestep: torch.Tensor,
+        context: torch.Tensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        ref_latents: Any = None,
+        additional_t_cond: Any = None,
+        transformer_options: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
         runtime: QwenSpectrumRuntime | None = getattr(self, "_spectrum_qwen_runtime", None)
         state: QwenSpectrumState | None = getattr(self, "_spectrum_qwen_state", None)
         if runtime is None or state is None:
             return original_forward(
-                hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_hidden_states_mask=encoder_hidden_states_mask,
+                x,
                 timestep=timestep,
-                image_rotary_emb=image_rotary_emb,
-                guidance=guidance,
-                attention_kwargs=attention_kwargs,
-                return_dict=return_dict,
+                context=context,
+                attention_mask=attention_mask,
+                ref_latents=ref_latents,
+                additional_t_cond=additional_t_cond,
+                transformer_options=transformer_options,
                 **kwargs,
             )
 
@@ -145,14 +138,13 @@ def build_qwen_core_forward(
                 state,
                 runtime,
                 original_forward,
-                hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_hidden_states_mask=encoder_hidden_states_mask,
+                x,
                 timestep=timestep,
-                image_rotary_emb=image_rotary_emb,
-                guidance=guidance,
-                attention_kwargs=attention_kwargs,
-                return_dict=return_dict,
+                context=context,
+                attention_mask=attention_mask,
+                ref_latents=ref_latents,
+                additional_t_cond=additional_t_cond,
+                transformer_options=transformer_options,
                 **kwargs,
             )
 
@@ -161,10 +153,9 @@ def build_qwen_core_forward(
                 self,
                 state,
                 runtime,
-                hidden_states=hidden_states,
+                hidden_states=x,
                 timestep=timestep,
-                guidance=guidance,
-                return_dict=return_dict,
+                additional_t_cond=additional_t_cond,
             )
         except Exception:
             return _run_actual_forward(
@@ -172,14 +163,13 @@ def build_qwen_core_forward(
                 state,
                 runtime,
                 original_forward,
-                hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_hidden_states_mask=encoder_hidden_states_mask,
+                x,
                 timestep=timestep,
-                image_rotary_emb=image_rotary_emb,
-                guidance=guidance,
-                attention_kwargs=attention_kwargs,
-                return_dict=return_dict,
+                context=context,
+                attention_mask=attention_mask,
+                ref_latents=ref_latents,
+                additional_t_cond=additional_t_cond,
+                transformer_options=transformer_options,
                 **kwargs,
             )
 
