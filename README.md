@@ -9,7 +9,7 @@ This repo patches the Qwen transformer core used by the loaded `MODEL`, captures
 Targeted support:
 
 - ComfyUI native **Qwen-Image-Edit-2511** workflows
-- Other native ComfyUI **Qwen Image-family** models that still expose the same transformer internals (`img_in`, `txt_norm`, `txt_in`, `transformer_blocks`, `norm_out`, `proj_out`, `pos_embed`, `time_text_embed`)
+- Other native ComfyUI **Qwen Image-family** models that still expose the same transformer internals (`img_in`, `txt_norm`, `txt_in`, `transformer_blocks`, `norm_out`, `proj_out`, `time_text_embed`)
 
 Intended scope:
 
@@ -160,7 +160,6 @@ This repo assumes the inner Qwen transformer core still exposes fields compatibl
 - `transformer_blocks`
 - `norm_out`
 - `proj_out`
-- `pos_embed`
 - `time_text_embed`
 
 If ComfyUI changes those internals materially, this repo will need updating.
