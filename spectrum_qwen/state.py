@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 import torch
 
+from .chebyshev import ChebyshevSpectrumForecaster
 from .config import QwenSpectrumConfig
 
 
@@ -14,6 +15,7 @@ class QwenSpectrumRuntime:
     current_step_index: int
     total_steps: int
     current_sigma: float
+    current_time_coord: float
     decision_actual: bool
     forecast_reason: str
     branch_key: tuple[int, ...] = ()
@@ -24,6 +26,7 @@ class QwenSpectrumState:
     config: QwenSpectrumConfig
     history_sigmas: list[float] = field(default_factory=list)
     history_features: list[torch.Tensor] = field(default_factory=list)
+    forecaster: ChebyshevSpectrumForecaster = field(init=False)
     actual_count: int = 0
     forecast_count: int = 0
     consecutive_forecasts: int = 0
@@ -33,9 +36,17 @@ class QwenSpectrumState:
     warned_zero_cond_once: bool = False
     warned_capture_once: bool = False
 
+    def __post_init__(self) -> None:
+        self.forecaster = ChebyshevSpectrumForecaster(
+            degree=self.config.chebyshev_degree,
+            ridge_lambda=self.config.ridge_lambda,
+            max_history=self.config.history_points,
+        )
+
     def reset(self) -> None:
         self.history_sigmas.clear()
         self.history_features.clear()
+        self.forecaster.reset()
         self.actual_count = 0
         self.forecast_count = 0
         self.consecutive_forecasts = 0
@@ -48,11 +59,13 @@ class QwenSpectrumState:
     def record_actual(
         self,
         sigma: float,
+        time_coord: float,
         feature: torch.Tensor,
         output_factory: Callable[[Any, bool], Any] | None,
     ) -> None:
         self.actual_count += 1
         self.consecutive_forecasts = 0
+        self.forecaster.update(time_coord, feature)
         self.history_sigmas.append(float(sigma))
         self.history_features.append(feature)
         if len(self.history_features) > self.config.history_points:

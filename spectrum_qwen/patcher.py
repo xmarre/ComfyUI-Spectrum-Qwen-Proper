@@ -7,6 +7,7 @@ import torch
 
 from .config import QwenSpectrumConfig
 from .constants import RUNTIME_ATTR, STATE_ATTR
+from .chebyshev import normalize_step_position
 from .controller import decide_actual_or_forecast, find_step_index
 from .forward_qwen import build_qwen_core_forward
 from .state import QwenSpectrumRootState, QwenSpectrumRuntime
@@ -72,6 +73,7 @@ def create_qwen_spectrum_unet_wrapper(
             current_step_index=current_step_index,
             total_steps=total_steps,
             current_sigma=float(sigmas[current_step_index].item()),
+            current_time_coord=normalize_step_position(current_step_index, total_steps),
             decision_actual=decision_actual,
             forecast_reason=reason,
             branch_key=branch_key,
