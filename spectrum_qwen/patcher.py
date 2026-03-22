@@ -7,11 +7,10 @@ import torch
 
 from .config import QwenSpectrumConfig
 from .constants import RUNTIME_ATTR, STATE_ATTR
-from .controller import decide_actual_or_forecast, find_step_index, should_reset_for_step_zero
+from .controller import decide_actual_or_forecast, find_step_index
 from .forward_qwen import build_qwen_core_forward
-from .state import QwenSpectrumRuntime, QwenSpectrumState
+from .state import QwenSpectrumRootState, QwenSpectrumRuntime
 from .utils import log_debug
-
 
 
 def create_qwen_spectrum_unet_wrapper(
@@ -19,10 +18,10 @@ def create_qwen_spectrum_unet_wrapper(
     core: Any,
     config: QwenSpectrumConfig,
 ) -> Callable[[Callable[..., Any], dict[str, Any]], Any]:
-    state = getattr(core, STATE_ATTR, None)
-    if state is None:
-        state = QwenSpectrumState(config=config)
-        setattr(core, STATE_ATTR, state)
+    root_state = getattr(core, "_spectrum_qwen_root_state", None)
+    if root_state is None or root_state.config != config:
+        root_state = QwenSpectrumRootState(config=config)
+        setattr(core, "_spectrum_qwen_root_state", root_state)
 
     def unet_wrapper_function(model_function: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
         input_tensor = kwargs["input"]
@@ -31,15 +30,28 @@ def create_qwen_spectrum_unet_wrapper(
         transformer_options = c.setdefault("transformer_options", {})
         sigmas = transformer_options.get("sample_sigmas")
         cond_or_uncond = kwargs.get("cond_or_uncond")
+        branch_key = tuple(cond_or_uncond) if cond_or_uncond is not None else ()
 
         if sigmas is None or not isinstance(sigmas, torch.Tensor) or sigmas.numel() == 0:
             return model_function(input_tensor, timestep, **c)
 
         current_step_index = find_step_index(sigmas, timestep)
+        sigmas_id = id(sigmas)
         total_steps = max(1, len(sigmas) - 1)
 
-        if current_step_index == 0 and should_reset_for_step_zero(cond_or_uncond):
-            state.reset()
+        if (
+            root_state.last_sigmas_id is not None
+            and root_state.last_sigmas_id != sigmas_id
+        ) or (
+            root_state.last_total_steps is not None
+            and root_state.last_total_steps != total_steps
+        ) or (
+            root_state.last_global_step_index is not None
+            and current_step_index < root_state.last_global_step_index
+        ):
+            root_state.reset_run()
+
+        state = root_state.get_branch_state(branch_key)
 
         control_present = (
             kwargs.get("control") is not None
@@ -62,6 +74,7 @@ def create_qwen_spectrum_unet_wrapper(
             current_sigma=float(sigmas[current_step_index].item()),
             decision_actual=decision_actual,
             forecast_reason=reason,
+            branch_key=branch_key,
         )
 
         transformer_options["spectrum_actual_forward"] = decision_actual
@@ -78,15 +91,24 @@ def create_qwen_spectrum_unet_wrapper(
             if hasattr(core, RUNTIME_ATTR):
                 delattr(core, RUNTIME_ATTR)
 
+        root_state.last_global_step_index = current_step_index
+        root_state.last_total_steps = total_steps
+        root_state.last_sigmas_id = sigmas_id
+
         if current_step_index + 1 == total_steps:
-            log_debug(
-                config.debug,
-                (
-                    "Spectrum Qwen summary: "
-                    f"actual={state.actual_count} forecast={state.forecast_count} "
-                    f"total={state.actual_count + state.forecast_count}"
-                ),
-            )
+            root_state.final_step_seen_branches.add(branch_key)
+            if len(root_state.final_step_seen_branches) == len(root_state.branch_states):
+                actual_calls = sum(branch.actual_count for branch in root_state.branch_states.values())
+                forecast_calls = sum(branch.forecast_count for branch in root_state.branch_states.values())
+                log_debug(
+                    config.debug,
+                    (
+                        "Spectrum Qwen summary: "
+                        f"branches={len(root_state.branch_states)} "
+                        f"actual_calls={actual_calls} forecast_calls={forecast_calls} "
+                        f"total_calls={actual_calls + forecast_calls}"
+                    ),
+                )
 
         return out
 

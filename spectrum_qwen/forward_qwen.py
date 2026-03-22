@@ -89,6 +89,7 @@ def _run_actual_forward(
         runtime.config.debug,
         (
             f"Spectrum Qwen step={runtime.current_step_index + 1}/{runtime.total_steps} "
+            f"branch={runtime.branch_key} "
             f"mode=actual reason={runtime.forecast_reason} "
             f"history={len(state.history_features)}"
         ),
@@ -125,6 +126,7 @@ def _run_forecast_forward(
         runtime.config.debug,
         (
             f"Spectrum Qwen step={runtime.current_step_index + 1}/{runtime.total_steps} "
+            f"branch={runtime.branch_key} "
             f"mode=forecast history={len(state.history_features)}"
         ),
     )
