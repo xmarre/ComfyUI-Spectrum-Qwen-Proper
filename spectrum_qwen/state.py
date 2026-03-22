@@ -16,6 +16,7 @@ class QwenSpectrumRuntime:
     current_sigma: float
     decision_actual: bool
     forecast_reason: str
+    branch_key: tuple[int, ...] = ()
 
 
 @dataclass
@@ -63,3 +64,27 @@ class QwenSpectrumState:
     def record_forecast(self) -> None:
         self.forecast_count += 1
         self.consecutive_forecasts += 1
+
+
+@dataclass
+class QwenSpectrumRootState:
+    config: QwenSpectrumConfig
+    branch_states: dict[tuple[int, ...], QwenSpectrumState] = field(default_factory=dict)
+    last_global_step_index: int | None = None
+    last_total_steps: int | None = None
+    last_sigmas_id: int | None = None
+    final_step_seen_branches: set[tuple[int, ...]] = field(default_factory=set)
+
+    def reset_run(self) -> None:
+        self.branch_states.clear()
+        self.last_global_step_index = None
+        self.last_total_steps = None
+        self.last_sigmas_id = None
+        self.final_step_seen_branches.clear()
+
+    def get_branch_state(self, branch_key: tuple[int, ...]) -> QwenSpectrumState:
+        state = self.branch_states.get(branch_key)
+        if state is None:
+            state = QwenSpectrumState(config=self.config)
+            self.branch_states[branch_key] = state
+        return state
