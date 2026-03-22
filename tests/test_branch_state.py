@@ -5,6 +5,7 @@ import unittest
 import torch
 from torch import nn
 
+from spectrum_qwen.chebyshev import ChebyshevSpectrumForecaster, normalize_step_position
 from spectrum_qwen.config import QwenSpectrumConfig
 from spectrum_qwen.patcher import create_qwen_spectrum_unet_wrapper
 
@@ -51,6 +52,58 @@ class _FakeCore(nn.Module):
 
 
 class BranchStateWrapperTest(unittest.TestCase):
+    def test_incremental_forecaster_matches_bruteforce_and_uses_cache(self) -> None:
+        def brute_force_predict(
+            history: list[tuple[float, torch.Tensor]],
+            target: float,
+            degree: int,
+            ridge_lambda: float,
+        ) -> torch.Tensor:
+            coords = torch.tensor([coord for coord, _ in history], dtype=torch.float32)
+            features = torch.stack([feat.reshape(-1).to(torch.float32) for _, feat in history], dim=0)
+
+            def design(values: torch.Tensor) -> torch.Tensor:
+                values = values.reshape(-1, 1)
+                cols = [torch.ones((values.shape[0], 1), dtype=torch.float32)]
+                if degree >= 1:
+                    cols.append(values)
+                    for _ in range(2, degree + 1):
+                        cols.append(2.0 * values * cols[-1] - cols[-2])
+                return torch.cat(cols[: degree + 1], dim=1)
+
+            design_hist = design(coords)
+            lhs = design_hist.transpose(0, 1) @ design_hist
+            if ridge_lambda > 0:
+                lhs = lhs + torch.eye(lhs.shape[0], dtype=torch.float32) * float(ridge_lambda)
+            rhs = design_hist.transpose(0, 1) @ features
+            coeff = torch.cholesky_solve(rhs, torch.linalg.cholesky(lhs))
+            return (design(torch.tensor([target], dtype=torch.float32)) @ coeff).reshape(history[-1][1].shape)
+
+        forecaster = ChebyshevSpectrumForecaster(degree=2, ridge_lambda=0.1, max_history=4)
+        raw_history: list[tuple[float, torch.Tensor]] = []
+
+        for step_index in range(5):
+            coord = normalize_step_position(step_index, 5)
+            feature = torch.tensor([coord, coord * coord], dtype=torch.float16)
+            raw_history.append((coord, feature))
+            forecaster.update(coord, feature)
+
+        self.assertTrue(forecaster.ready())
+
+        original_recompute = forecaster._recompute_coefficients
+
+        def fail_recompute() -> None:
+            raise AssertionError("predict() unexpectedly recomputed the fit")
+
+        forecaster._recompute_coefficients = fail_recompute  # type: ignore[method-assign]
+        try:
+            pred = forecaster.predict(1.5)
+        finally:
+            forecaster._recompute_coefficients = original_recompute  # type: ignore[method-assign]
+
+        want = brute_force_predict(raw_history[-4:], 1.5, degree=2, ridge_lambda=0.1).to(pred.dtype)
+        self.assertTrue(torch.allclose(pred, want, atol=1e-3, rtol=1e-3))
+
     def test_separates_branches_and_resets_on_new_run(self) -> None:
         config = QwenSpectrumConfig(
             warmup_steps=0,

@@ -4,7 +4,6 @@ from typing import Any, Callable
 
 import torch
 
-from .chebyshev import forecast_feature
 from .state import QwenSpectrumRuntime, QwenSpectrumState
 from .utils import build_output_factory, log_debug, resolve_cache_target
 
@@ -82,6 +81,7 @@ def _run_actual_forward(
 
     state.record_actual(
         sigma=runtime.current_sigma,
+        time_coord=runtime.current_time_coord,
         feature=feature,
         output_factory=build_output_factory(out),
     )
@@ -108,14 +108,7 @@ def _run_forecast_forward(
 ) -> Any:
     if state.output_factory is None:
         raise RuntimeError("output factory missing before forecast")
-
-    pred = forecast_feature(
-        history_sigmas=state.history_sigmas,
-        history_features=state.history_features,
-        target_sigma=runtime.current_sigma,
-        degree=runtime.config.chebyshev_degree,
-        ridge_lambda=runtime.config.ridge_lambda,
-    )
+    pred = state.forecaster.predict(runtime.current_time_coord)
 
     pred = pred.to(device=hidden_states.device, dtype=hidden_states.dtype)
     temb = _call_time_text_embed(core, timestep, pred, additional_t_cond)
