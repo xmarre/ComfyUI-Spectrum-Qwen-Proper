@@ -121,6 +121,37 @@ class BranchStateWrapperTest(unittest.TestCase):
         self.assertEqual(root_state.branch_states[(0,)].actual_count, 1)
         self.assertEqual(len(root_state.branch_states[(0,)].history_features), 1)
 
+    def test_replaces_cached_root_state_when_config_changes(self) -> None:
+        core = _FakeCore()
+
+        first_config = QwenSpectrumConfig(
+            warmup_steps=0,
+            tail_actual_steps=0,
+            history_points=2,
+            chebyshev_degree=1,
+            max_consecutive_forecasts=1,
+            debug=False,
+        )
+        second_config = QwenSpectrumConfig(
+            warmup_steps=1,
+            tail_actual_steps=1,
+            history_points=3,
+            chebyshev_degree=1,
+            max_consecutive_forecasts=2,
+            debug=False,
+        )
+
+        create_qwen_spectrum_unet_wrapper(core, core, first_config)
+        first_root_state = getattr(core, "_spectrum_qwen_root_state")
+        first_root_state.get_branch_state((0,))
+
+        create_qwen_spectrum_unet_wrapper(core, core, second_config)
+        second_root_state = getattr(core, "_spectrum_qwen_root_state")
+
+        self.assertIsNot(first_root_state, second_root_state)
+        self.assertEqual(second_root_state.config, second_config)
+        self.assertEqual(second_root_state.branch_states, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,7 @@ def create_qwen_spectrum_unet_wrapper(
     config: QwenSpectrumConfig,
 ) -> Callable[[Callable[..., Any], dict[str, Any]], Any]:
     root_state = getattr(core, "_spectrum_qwen_root_state", None)
-    if root_state is None:
+    if root_state is None or root_state.config != config:
         root_state = QwenSpectrumRootState(config=config)
         setattr(core, "_spectrum_qwen_root_state", root_state)
 
