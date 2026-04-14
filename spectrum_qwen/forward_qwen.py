@@ -46,6 +46,20 @@ def _reconstruct_qwen_output(
     return out_sample.reshape(orig_shape)[:, :, :, : model_input.shape[-2], : model_input.shape[-1]]
 
 
+def _sanitize_forecast_feature(
+    feature: torch.Tensor,
+    target_dtype: torch.dtype,
+) -> torch.Tensor:
+    if not target_dtype.is_floating_point:
+        return feature.to(dtype=target_dtype).contiguous()
+
+    finfo = torch.finfo(target_dtype)
+    feature = feature.to(torch.float32)
+    feature = torch.nan_to_num(feature, nan=0.0, posinf=finfo.max, neginf=finfo.min)
+    feature = feature.clamp(min=finfo.min, max=finfo.max)
+    return feature.to(dtype=target_dtype).contiguous()
+
+
 
 def _run_actual_forward(
     core: Any,
@@ -55,7 +69,7 @@ def _run_actual_forward(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
-    captured: dict[str, torch.Tensor] = {}
+    captured: dict[str, Any] = {}
 
     def capture_pre_norm(_module: Any, hook_args: tuple[Any, ...]) -> None:
         if not hook_args:
@@ -63,6 +77,7 @@ def _run_actual_forward(
         hidden = hook_args[0]
         target_device, target_dtype = resolve_cache_target(hidden, state.config.cache_device)
         captured["feature"] = hidden.detach().to(device=target_device, dtype=target_dtype)
+        captured["model_feature_dtype"] = hidden.dtype
 
     handle = core.norm_out.register_forward_pre_hook(capture_pre_norm)
     try:
@@ -83,6 +98,7 @@ def _run_actual_forward(
         sigma=runtime.current_sigma,
         time_coord=runtime.current_time_coord,
         feature=feature,
+        model_feature_dtype=captured.get("model_feature_dtype"),
         output_factory=build_output_factory(out),
     )
     log_debug(
@@ -110,7 +126,9 @@ def _run_forecast_forward(
         raise RuntimeError("output factory missing before forecast")
     pred = state.forecaster.predict(runtime.current_time_coord)
 
-    pred = pred.to(device=hidden_states.device, dtype=hidden_states.dtype)
+    target_dtype = state.model_feature_dtype or pred.dtype
+    pred = pred.to(device=hidden_states.device)
+    pred = _sanitize_forecast_feature(pred, target_dtype)
     temb = _call_time_text_embed(core, timestep, pred, additional_t_cond)
     out_sample = core.proj_out(core.norm_out(pred, temb))
     out_sample = _reconstruct_qwen_output(core, hidden_states, out_sample)

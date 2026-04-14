@@ -27,6 +27,7 @@ class QwenSpectrumState:
     history_sigmas: list[float] = field(default_factory=list)
     history_features: list[torch.Tensor] = field(default_factory=list)
     forecaster: ChebyshevSpectrumForecaster = field(init=False)
+    model_feature_dtype: torch.dtype | None = None
     actual_count: int = 0
     forecast_count: int = 0
     consecutive_forecasts: int = 0
@@ -47,6 +48,7 @@ class QwenSpectrumState:
         self.history_sigmas.clear()
         self.history_features.clear()
         self.forecaster.reset()
+        self.model_feature_dtype = None
         self.actual_count = 0
         self.forecast_count = 0
         self.consecutive_forecasts = 0
@@ -61,11 +63,14 @@ class QwenSpectrumState:
         sigma: float,
         time_coord: float,
         feature: torch.Tensor,
+        model_feature_dtype: torch.dtype | None,
         output_factory: Callable[[Any, bool], Any] | None,
     ) -> None:
         self.actual_count += 1
         self.consecutive_forecasts = 0
         self.forecaster.update(time_coord, feature)
+        if model_feature_dtype is not None:
+            self.model_feature_dtype = model_feature_dtype
         self.history_sigmas.append(float(sigma))
         self.history_features.append(feature)
         if len(self.history_features) > self.config.history_points:

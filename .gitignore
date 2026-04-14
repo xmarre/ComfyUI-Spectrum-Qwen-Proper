@@ -9,3 +9,4 @@ __pycache__/
 *.suo
 *.user
 *.VC.db
+.codex/
